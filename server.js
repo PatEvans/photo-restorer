@@ -1,4 +1,4 @@
-/* Simple Express proxy + static server for PhotoRestorer */
+/* Simple Express proxy + static server for PhotoRestore */
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -178,7 +178,7 @@ app.post('/api/buy-credits', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 }),
         {
           price_data: {
             currency: 'usd',
-            product_data: { name: `${testPrefix}PhotoRestorer Credits (${pack})` },
+            product_data: { name: `${testPrefix}PhotoRestore Credits (${pack})` },
             unit_amount: amountCents,
           },
           quantity: 1,
@@ -379,5 +379,5 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   const actualPort = (addr && typeof addr === 'object') ? addr.port : PORT;
   ACTUAL_PORT = Number(actualPort) || ACTUAL_PORT;
   // Helpful local hint; in cloud, use your service URL
-  console.log(`PhotoRestorer server listening on 0.0.0.0:${actualPort} (try http://127.0.0.1:${actualPort} locally)`);
+  console.log(`PhotoRestore server listening on 0.0.0.0:${actualPort} (try http://127.0.0.1:${actualPort} locally)`);
 });

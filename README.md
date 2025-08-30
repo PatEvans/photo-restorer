@@ -1,4 +1,4 @@
-# PhotoRestorer
+# PhotoRestore
 
 AI-powered photo restoration and colorization with Gemini 2.5. Upload a photo, get a restored, colorized, and upscaled result. Credits handled via Stripe Checkout.
 

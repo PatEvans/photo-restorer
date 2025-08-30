@@ -74,13 +74,18 @@ body {
 
 .logo {
     font-size: 2.5rem;
-    font-weight: 700;
-    color: var(--primary-color);
+    font-weight: 800;
+    /* Subtle gradient text for extra pop */
+    background: linear-gradient(90deg, #93c5fd 0%, #60a5fa 55%, #34d399 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
     margin-bottom: 0.5rem;
     text-decoration: none;
     cursor: pointer;
     display: inline-block;
     white-space: nowrap; /* keep brand on one line */
+    text-shadow: 0 1px 0 rgba(0,0,0,0.25);
 }
 
 .tagline {
