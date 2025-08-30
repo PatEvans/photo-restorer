@@ -467,19 +467,26 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
             const j = await r.json();
             if (!r.ok) return;
             if (this.testBadge) {
-                this.testBadge.hidden = !j.stripeTestMode;
+                this.testBadge.hidden = true; // badge removed from UI
             }
-            if (j.usage) this.renderUsage(j.usage);
+            // Only update free/heading if server provided freeRemaining
+            if (j && j.usage) {
+                const update = { credits: j.usage.credits };
+                if (typeof j.freeRemaining === 'number') update.freeRemaining = j.freeRemaining;
+                this.renderUsage(update);
+            }
         } catch {}
     }
 
     renderUsage(usage) {
         if (!usage) return;
         const credits = (usage.credits ?? usage?.usage?.credits) ?? 0;
-        const freeRemaining = (usage.freeRemaining ?? usage?.usage?.freeRemaining) ?? 0;
+        const freeRemaining = (usage.freeRemaining ?? usage?.usage?.freeRemaining);
         if (this.creditInfo) this.creditInfo.textContent = `Credits: ${credits}`;
         if (this.creditInfoTop) this.creditInfoTop.textContent = `Credits: ${credits}`;
-        this.updateUploadButtonLabel({ credits, freeRemaining });
+        if (typeof freeRemaining === 'number') {
+            this.updateUploadButtonLabel({ credits, freeRemaining });
+        }
     }
 
     updateUploadButtonLabel(info) {
