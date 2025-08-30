@@ -486,15 +486,15 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
         if (!this.uploadBtn || !info) return;
         const free = Number(info.freeRemaining || 0);
         if (free > 0) {
-            this.uploadBtn.textContent = 'Upload a photo — 1 free';
-            this.uploadBtn.setAttribute('aria-label', 'Upload one photo for free');
+            this.uploadBtn.textContent = 'Upload a Photo';
+            this.uploadBtn.setAttribute('aria-label', 'Upload one Photo for free');
             this.uploadBtn.title = 'Your first restore is free';
-            if (this.uploadHeading) this.uploadHeading.textContent = 'Upload a photo — 1 free';
+            if (this.uploadHeading) this.uploadHeading.textContent = 'Restore a Photo - 1 Free';
         } else {
-            this.uploadBtn.textContent = 'Upload a photo (100 credits)';
-            this.uploadBtn.setAttribute('aria-label', 'Upload a photo (costs 100 credits)');
+            this.uploadBtn.textContent = 'Upload a Photo';
+            this.uploadBtn.setAttribute('aria-label', 'Upload a Photo (costs 100 credits)');
             this.uploadBtn.removeAttribute('title');
-            if (this.uploadHeading) this.uploadHeading.textContent = 'Upload a photo';
+            if (this.uploadHeading) this.uploadHeading.textContent = 'Restore a Photo';
         }
     }
 
