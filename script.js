@@ -1104,7 +1104,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Display API setup message
 document.addEventListener('DOMContentLoaded', () => {
     console.log(`
-🎨 GEMINI-POWERED PHOTO RESTORER READY!
+🎨 GEMINI-POWERED PhotoRestorer READY!
 
 ✅ GEMINI 2.5 FLASH INTEGRATION ACTIVE
 - Photo analysis and historical context identification
