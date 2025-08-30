@@ -80,6 +80,7 @@ body {
     text-decoration: none;
     cursor: pointer;
     display: inline-block;
+    white-space: nowrap; /* keep brand on one line */
 }
 
 .tagline {
@@ -224,6 +225,21 @@ body {
   .credit-badge { font-size: 0.85rem; height: 1.8rem; padding: 0.22rem 0.55rem; }
   .test-badge { font-size: 0.78rem; height: 1.8rem; padding: 0.22rem 0.5rem; }
   .btn-cta { padding: 0.5rem 0.9rem; font-size: 0.95rem; }
+  .logo { font-size: 2rem; }
+}
+
+@media (max-width: 420px) {
+  .header-actions { gap: 0.4rem; }
+  .credit-badge { font-size: 0.8rem; padding: 0.18rem 0.5rem; }
+  .btn-cta { padding: 0.45rem 0.8rem; font-size: 0.92rem; }
+  .logo { font-size: 1.85rem; }
+}
+
+@media (max-width: 360px) {
+  .header-actions { gap: 0.35rem; }
+  .credit-badge { font-size: 0.76rem; padding: 0.16rem 0.45rem; }
+  .btn-cta { padding: 0.42rem 0.75rem; font-size: 0.9rem; }
+  .logo { font-size: 1.7rem; }
 }
 
 .btn-secondary:hover {
