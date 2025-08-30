@@ -474,9 +474,25 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
 
     renderUsage(usage) {
         if (!usage) return;
-        const credits = usage.credits ?? 0;
-        if (this.creditInfo) this.creditInfo.textContent = `Credits: ${credits} · 100 per image`;
+        const credits = (usage.credits ?? usage?.usage?.credits) ?? 0;
+        const freeRemaining = (usage.freeRemaining ?? usage?.usage?.freeRemaining) ?? 0;
+        if (this.creditInfo) this.creditInfo.textContent = `Credits: ${credits}`;
         if (this.creditInfoTop) this.creditInfoTop.textContent = `Credits: ${credits}`;
+        this.updateUploadButtonLabel({ credits, freeRemaining });
+    }
+
+    updateUploadButtonLabel(info) {
+        if (!this.uploadBtn || !info) return;
+        const free = Number(info.freeRemaining || 0);
+        if (free > 0) {
+            this.uploadBtn.textContent = 'Upload a photo — 1 free';
+            this.uploadBtn.setAttribute('aria-label', 'Upload one photo for free');
+            this.uploadBtn.title = 'Your first restore is free';
+        } else {
+            this.uploadBtn.textContent = 'Upload a photo (100 credits)';
+            this.uploadBtn.setAttribute('aria-label', 'Upload a photo (costs 100 credits)');
+            this.uploadBtn.removeAttribute('title');
+        }
     }
 
     // Recent cache (IndexedDB)

@@ -41,7 +41,7 @@ const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET) : null;
 const processedSessions = new Set();
 
 // Very simple in-memory user store (replace with DB in production)
-const users = new Map(); // uid -> { credits: number }
+const users = new Map(); // uid -> { credits: number, freeRemaining: number }
 
 app.use(express.json({ limit: '25mb' }));
 app.use(cookieParser());
@@ -109,7 +109,7 @@ app.use((req, res, next) => {
 
 function getUser(req) {
   const uid = req.uid || req.cookies.uid;
-  if (!users.has(uid)) users.set(uid, { credits: 100 }); // 100 free credits to start
+  if (!users.has(uid)) users.set(uid, { credits: 0, freeRemaining: 1 }); // start with 0 credits + 1 free restore
   return { uid, data: users.get(uid) };
 }
 
@@ -143,7 +143,7 @@ app.get('/api/health', (req, res) => {
 // Get current user usage/credits
 app.get('/api/me', (req, res) => {
   const { uid, data } = getUser(req);
-  res.json({ uid, credits: data.credits });
+  res.json({ uid, credits: data.credits, freeRemaining: data.freeRemaining || 0 });
 });
 
 // Stripe: create a Checkout Session for credit packs (500/1000/2000)
@@ -201,7 +201,7 @@ app.post('/api/confirm', rateLimit({ windowMs: 10 * 60 * 1000, limit: 60 }), asy
         return res.status(403).json({ error: 'forbidden' });
       }
       if (uid) {
-        if (!users.has(uid)) users.set(uid, { credits: 100 });
+        if (!users.has(uid)) users.set(uid, { credits: 0, freeRemaining: 1 });
         if (!processedSessions.has(session_id)) {
           const add = parseInt(session?.metadata?.credits || '0', 10) || 0;
           users.get(uid).credits += add;
@@ -232,6 +232,13 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
     if (!API_KEY) {
       return res.status(500).json({ error: 'Server misconfigured: GEMINI_API_KEY missing' });
     }
+    const { uid, data: u } = getUser(req);
+    // Allow one free restore if available; otherwise require 100 credits
+    const canUseFree = (u.freeRemaining || 0) > 0;
+    const hasCredits = (u.credits || 0) >= 100;
+    if (!canUseFree && !hasCredits) {
+      return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits: u.credits, freeRemaining: u.freeRemaining || 0 });
+    }
     // Validate image input
     if (typeof mimeType !== 'string' || !mimeType.startsWith('image/')) {
       return res.status(400).json({ error: 'Invalid mimeType' });
@@ -241,12 +248,6 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
       const maxBytes = 12 * 1024 * 1024; // 12MB cap (defense-in-depth)
       if (bytes > maxBytes) return res.status(413).json({ error: 'Image too large' });
     } catch {}
-    // Quota check: require 100 credits per image
-    const { uid, data: u } = getUser(req);
-    if ((u.credits || 0) < 100) {
-      return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits: u.credits });
-    }
-
     const requested = (modelOverride || MODEL).trim();
     const useModel = ALLOWED_MODELS.includes(requested) ? requested : MODEL;
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent`;
@@ -273,8 +274,12 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
     if (!inline?.data) return res.status(502).json({ error: 'No image returned from model', model: useModel, raw: json });
     const mime = inline.mime_type || inline.mimeType || 'image/png';
     const dataOut = typeof inline.data === 'string' ? inline.data : Buffer.from(inline.data).toString('base64');
-    // Deduct 100 credits per restore
-    u.credits = Math.max(0, (u.credits || 0) - 100);
+    // Deduct usage: prefer credits, else consume free
+    if (hasCredits) {
+      u.credits = Math.max(0, (u.credits || 0) - 100);
+    } else if (canUseFree) {
+      u.freeRemaining = Math.max(0, (u.freeRemaining || 1) - 1);
+    }
     return res.json({ mimeType: mime, data: dataOut, modelUsed: useModel, usage: u });
   } catch (err) {
     const message = err?.message || String(err);
@@ -292,8 +297,10 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
     if (!API_KEY) return res.status(500).json({ error: 'Server misconfigured: GEMINI_API_KEY missing' });
 
     const { uid, data: u } = getUser(req);
-    if ((u.credits || 0) < 100) {
-      return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits: u.credits });
+    const canUseFree = (u.freeRemaining || 0) > 0;
+    const hasCredits = (u.credits || 0) >= 100;
+    if (!canUseFree && !hasCredits) {
+      return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits: u.credits, freeRemaining: u.freeRemaining || 0 });
     }
     const requested = (modelOverride || MODEL).trim();
     const useModel = ALLOWED_MODELS.includes(requested) ? requested : MODEL;
@@ -314,7 +321,11 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
     }
     const mime = inline.mime_type || inline.mimeType || 'image/png';
     const dataOut = typeof inline.data === 'string' ? inline.data : Buffer.from(inline.data).toString('base64');
-    u.credits = Math.max(0, (u.credits || 0) - 100);
+    if (hasCredits) {
+      u.credits = Math.max(0, (u.credits || 0) - 100);
+    } else if (canUseFree) {
+      u.freeRemaining = Math.max(0, (u.freeRemaining || 1) - 1);
+    }
     return res.json({ mimeType: mime, data: dataOut, modelUsed: useModel, usage: u });
   } catch (err) {
     const message = err?.message || String(err);
