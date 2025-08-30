@@ -28,6 +28,7 @@ if (!ALLOWED_MODELS.includes(MODEL)) ALLOWED_MODELS.push(MODEL);
 
 const API_KEY = process.env.GEMINI_API_KEY;
 const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY;
+const COOKIE_SECRET = process.env.COOKIE_SECRET;
 const SITE_ORIGIN = (process.env.SITE_ORIGIN || `http://127.0.0.1:${PORT}`).replace(/\/$/, '');
 let ACTUAL_PORT = Number(PORT) || 0;
 const ALLOWED_ORIGINS = new Set([
@@ -41,10 +42,10 @@ const stripe = STRIPE_SECRET ? new Stripe(STRIPE_SECRET) : null;
 const processedSessions = new Set();
 
 // Very simple in-memory user store (replace with DB in production)
-const users = new Map(); // uid -> { credits: number, freeRemaining: number }
+const users = new Map(); // uid -> { credits: number }
 
 app.use(express.json({ limit: '25mb' }));
-app.use(cookieParser());
+app.use(cookieParser(COOKIE_SECRET));
 
 // CORS: reflect only allowed origins and allow credentials (API only)
 function corsMiddleware(req, res, next) {
@@ -109,7 +110,7 @@ app.use((req, res, next) => {
 
 function getUser(req) {
   const uid = req.uid || req.cookies.uid;
-  if (!users.has(uid)) users.set(uid, { credits: 0, freeRemaining: 1 }); // start with 0 credits + 1 free restore
+  if (!users.has(uid)) users.set(uid, { credits: 0 });
   return { uid, data: users.get(uid) };
 }
 
@@ -143,7 +144,10 @@ app.get('/api/health', (req, res) => {
 // Get current user usage/credits
 app.get('/api/me', (req, res) => {
   const { uid, data } = getUser(req);
-  res.json({ uid, credits: data.credits, freeRemaining: data.freeRemaining || 0 });
+  // Free restore is tracked via signed cookie; 1 if not used
+  const freeUsed = (req.signedCookies && req.signedCookies.free_used === '1') || req.cookies.free_used === '1';
+  const freeRemaining = freeUsed ? 0 : 1;
+  res.json({ uid, credits: data.credits, freeRemaining });
 });
 
 // Stripe: create a Checkout Session for credit packs (500/1000/2000)
@@ -201,7 +205,7 @@ app.post('/api/confirm', rateLimit({ windowMs: 10 * 60 * 1000, limit: 60 }), asy
         return res.status(403).json({ error: 'forbidden' });
       }
       if (uid) {
-        if (!users.has(uid)) users.set(uid, { credits: 0, freeRemaining: 1 });
+        if (!users.has(uid)) users.set(uid, { credits: 0 });
         if (!processedSessions.has(session_id)) {
           const add = parseInt(session?.metadata?.credits || '0', 10) || 0;
           users.get(uid).credits += add;
@@ -233,11 +237,12 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
       return res.status(500).json({ error: 'Server misconfigured: GEMINI_API_KEY missing' });
     }
     const { uid, data: u } = getUser(req);
-    // Allow one free restore if available; otherwise require 100 credits
-    const canUseFree = (u.freeRemaining || 0) > 0;
+    // Allow one free restore if available; otherwise require 100 credits.
+    const freeUsed = (req.signedCookies && req.signedCookies.free_used === '1') || req.cookies.free_used === '1';
+    const canUseFree = !freeUsed;
     const hasCredits = (u.credits || 0) >= 100;
     if (!canUseFree && !hasCredits) {
-      return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits: u.credits, freeRemaining: u.freeRemaining || 0 });
+      return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits: u.credits, freeRemaining: 0 });
     }
     // Validate image input
     if (typeof mimeType !== 'string' || !mimeType.startsWith('image/')) {
@@ -278,9 +283,11 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
     if (hasCredits) {
       u.credits = Math.max(0, (u.credits || 0) - 100);
     } else if (canUseFree) {
-      u.freeRemaining = Math.max(0, (u.freeRemaining || 1) - 1);
+      const isProd = process.env.NODE_ENV === 'production';
+      res.cookie('free_used', '1', { httpOnly: true, secure: isProd, sameSite: 'Lax', maxAge: 2 * 365 * 24 * 60 * 60 * 1000, signed: Boolean(COOKIE_SECRET) });
     }
-    return res.json({ mimeType: mime, data: dataOut, modelUsed: useModel, usage: u });
+    const freeRemaining = hasCredits ? 0 : (canUseFree ? 0 : 1);
+    return res.json({ mimeType: mime, data: dataOut, modelUsed: useModel, usage: { credits: u.credits, freeRemaining } });
   } catch (err) {
     const message = err?.message || String(err);
     console.error('Restore proxy error:', message);
@@ -297,10 +304,11 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
     if (!API_KEY) return res.status(500).json({ error: 'Server misconfigured: GEMINI_API_KEY missing' });
 
     const { uid, data: u } = getUser(req);
-    const canUseFree = (u.freeRemaining || 0) > 0;
+    const freeUsed = (req.signedCookies && req.signedCookies.free_used === '1') || req.cookies.free_used === '1';
+    const canUseFree = !freeUsed;
     const hasCredits = (u.credits || 0) >= 100;
     if (!canUseFree && !hasCredits) {
-      return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits: u.credits, freeRemaining: u.freeRemaining || 0 });
+      return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits: u.credits, freeRemaining: 0 });
     }
     const requested = (modelOverride || MODEL).trim();
     const useModel = ALLOWED_MODELS.includes(requested) ? requested : MODEL;
@@ -324,9 +332,11 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
     if (hasCredits) {
       u.credits = Math.max(0, (u.credits || 0) - 100);
     } else if (canUseFree) {
-      u.freeRemaining = Math.max(0, (u.freeRemaining || 1) - 1);
+      const isProd = process.env.NODE_ENV === 'production';
+      res.cookie('free_used', '1', { httpOnly: true, secure: isProd, sameSite: 'Lax', maxAge: 2 * 365 * 24 * 60 * 60 * 1000, signed: Boolean(COOKIE_SECRET) });
     }
-    return res.json({ mimeType: mime, data: dataOut, modelUsed: useModel, usage: u });
+    const freeRemaining = hasCredits ? 0 : (canUseFree ? 0 : 1);
+    return res.json({ mimeType: mime, data: dataOut, modelUsed: useModel, usage: { credits: u.credits, freeRemaining } });
   } catch (err) {
     const message = err?.message || String(err);
     console.error('Restore-text proxy error:', message);
