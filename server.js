@@ -283,14 +283,15 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
     const dataOut = typeof inline.data === 'string' ? inline.data : Buffer.from(inline.data).toString('base64');
     // Deduct usage: prefer credits, else consume free
     let freeRemaining;
-    if (hasCredits) {
-      u.credits = Math.max(0, (u.credits || 0) - 100);
-      const freeUsedNow = (req.signedCookies && req.signedCookies.free_used === '1') || req.cookies.free_used === '1';
-      freeRemaining = freeUsedNow ? 0 : 1;
-    } else if (canUseFree) {
+    // Prefer consuming the free restore first, even if credits are available
+    if (canUseFree) {
       const isProd = process.env.NODE_ENV === 'production';
       res.cookie('free_used', '1', { httpOnly: true, secure: isProd, sameSite: 'Lax', maxAge: 2 * 365 * 24 * 60 * 60 * 1000, signed: Boolean(COOKIE_SECRET) });
       freeRemaining = 0;
+    } else if (hasCredits) {
+      u.credits = Math.max(0, (u.credits || 0) - 100);
+      const freeUsedNow = (req.signedCookies && req.signedCookies.free_used === '1') || req.cookies.free_used === '1';
+      freeRemaining = freeUsedNow ? 0 : 1;
     } else {
       freeRemaining = 0;
     }
@@ -337,14 +338,15 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
     const mime = inline.mime_type || inline.mimeType || 'image/png';
     const dataOut = typeof inline.data === 'string' ? inline.data : Buffer.from(inline.data).toString('base64');
     let freeRemaining;
-    if (hasCredits) {
-      u.credits = Math.max(0, (u.credits || 0) - 100);
-      const freeUsedNow = (req.signedCookies && req.signedCookies.free_used === '1') || req.cookies.free_used === '1';
-      freeRemaining = freeUsedNow ? 0 : 1;
-    } else if (canUseFree) {
+    // Prefer consuming the free restore first, even if credits are available
+    if (canUseFree) {
       const isProd = process.env.NODE_ENV === 'production';
       res.cookie('free_used', '1', { httpOnly: true, secure: isProd, sameSite: 'Lax', maxAge: 2 * 365 * 24 * 60 * 60 * 1000, signed: Boolean(COOKIE_SECRET) });
       freeRemaining = 0;
+    } else if (hasCredits) {
+      u.credits = Math.max(0, (u.credits || 0) - 100);
+      const freeUsedNow = (req.signedCookies && req.signedCookies.free_used === '1') || req.cookies.free_used === '1';
+      freeRemaining = freeUsedNow ? 0 : 1;
     } else {
       freeRemaining = 0;
     }
