@@ -48,6 +48,7 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
         this.uploadArea = document.getElementById('uploadArea');
         this.fileInput = document.getElementById('fileInput');
         this.uploadBtn = document.getElementById('uploadBtn');
+        this.uploadHeading = document.getElementById('uploadHeading');
         this.creditInfo = document.getElementById('creditInfo');
         this.creditInfoTop = document.getElementById('creditInfoTop');
         this.testBadge = document.getElementById('testBadge');
@@ -488,10 +489,12 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
             this.uploadBtn.textContent = 'Upload a photo — 1 free';
             this.uploadBtn.setAttribute('aria-label', 'Upload one photo for free');
             this.uploadBtn.title = 'Your first restore is free';
+            if (this.uploadHeading) this.uploadHeading.textContent = 'Upload a photo — 1 free';
         } else {
             this.uploadBtn.textContent = 'Upload a photo (100 credits)';
             this.uploadBtn.setAttribute('aria-label', 'Upload a photo (costs 100 credits)');
             this.uploadBtn.removeAttribute('title');
+            if (this.uploadHeading) this.uploadHeading.textContent = 'Upload a photo';
         }
     }
 

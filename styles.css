@@ -190,6 +190,15 @@ body {
     box-shadow: var(--shadow);
 }
 
+/* Improve legibility of primary upload button */
+.upload-btn {
+    background: #2563eb; /* blue-600 for stronger contrast */
+    color: #fff;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.1);
+}
+.upload-btn:hover { background: #1d4ed8; }
+
 .btn-secondary {
     background: var(--surface);
     color: var(--text-primary);
