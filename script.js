@@ -44,6 +44,21 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
 5. Specific RGB color values for major elements when possible`;
     }
 
+    async getStripe() {
+        try {
+            if (this._stripe) return this._stripe;
+            if (typeof Stripe !== 'function') return null;
+            const r = await fetch('/api/config', { credentials: 'include' });
+            const j = await r.json().catch(() => ({}));
+            const pk = j?.stripePublishableKey;
+            if (!pk) return null;
+            this._stripe = Stripe(pk);
+            return this._stripe;
+        } catch {
+            return null;
+        }
+    }
+
     initializeElements() {
         this.uploadArea = document.getElementById('uploadArea');
         this.fileInput = document.getElementById('fileInput');
@@ -160,7 +175,15 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
                         });
                         const j = await r.json().catch(() => ({}));
                         if (!r.ok) throw new Error(j.error || 'Failed to start checkout');
-                        if (j.url) window.open(j.url, '_blank');
+                        const stripe = await this.getStripe();
+                        if (stripe && j.id) {
+                            const { error } = await stripe.redirectToCheckout({ sessionId: j.id });
+                            if (error) throw error;
+                        } else if (j.url) {
+                            window.location.href = j.url; // fallback without popup
+                        } else {
+                            throw new Error('Checkout session missing id/url');
+                        }
                     } catch (e) {
                         alert('Unable to start checkout: ' + (e.message || e));
                     }

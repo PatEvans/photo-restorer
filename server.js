@@ -210,10 +210,18 @@ app.post('/api/buy-credits', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 }),
       success_url: successUrl,
       cancel_url: cancelUrl,
     });
-    res.json({ url: session.url });
+    // Best practice: return the session id for Stripe.js redirectToCheckout
+    res.json({ id: session.id, url: session.url });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
+});
+
+// Public config for client (exposes only publishable key)
+app.get('/api/config', (req, res) => {
+  res.json({
+    stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || null,
+  });
 });
 
 // Confirm a completed purchase and add credits
