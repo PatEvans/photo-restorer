@@ -494,7 +494,7 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
             this.uploadBtn.textContent = 'Upload a Photo';
             this.uploadBtn.setAttribute('aria-label', 'Upload a Photo (costs 100 credits)');
             this.uploadBtn.removeAttribute('title');
-            if (this.uploadHeading) this.uploadHeading.textContent = 'Restore a Photo';
+            if (this.uploadHeading) this.uploadHeading.textContent = 'Restore a Photo - 100 Credits';
         }
     }
 
