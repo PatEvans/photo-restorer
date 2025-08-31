@@ -3,7 +3,6 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import cookieParser from 'cookie-parser';
 import Stripe from 'stripe';
 import fs from 'fs/promises';
@@ -15,18 +14,17 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MODEL = (process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview').trim();
+const OR_MODEL = (process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash-image-preview').trim();
 // Restrict models to a safe allowlist
-const ALLOWED_MODELS = (process.env.GEMINI_ALLOWED_MODELS
-  ? process.env.GEMINI_ALLOWED_MODELS.split(',').map(s => s.trim()).filter(Boolean)
+const ALLOWED_MODELS = (process.env.OPENROUTER_ALLOWED_MODELS
+  ? process.env.OPENROUTER_ALLOWED_MODELS.split(',').map(s => s.trim()).filter(Boolean)
   : [
-      'gemini-2.5-flash-image-preview',
-      'gemini-2.5-flash',
-      'gemini-2.0-flash-lite'
+      'google/gemini-2.5-flash-image-preview',
+      'google/gemini-2.5-flash'
     ]);
-if (!ALLOWED_MODELS.includes(MODEL)) ALLOWED_MODELS.push(MODEL);
+if (!ALLOWED_MODELS.includes(OR_MODEL)) ALLOWED_MODELS.push(OR_MODEL);
 
-const API_KEY = process.env.GEMINI_API_KEY;
+const OR_API_KEY = process.env.OPENROUTER_API_KEY;
 const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY;
 const COOKIE_SECRET = process.env.COOKIE_SECRET;
 const SITE_ORIGIN = (process.env.SITE_ORIGIN || `http://127.0.0.1:${PORT}`).replace(/\/$/, '');
@@ -90,22 +88,9 @@ function getSiteOrigin(req) {
   return `http://127.0.0.1:${ACTUAL_PORT || 3000}`;
 }
 
-// Safety settings for Gemini: allow env override (e.g., GEMINI_SAFETY=none)
-const SAFETY_MODE = (process.env.GEMINI_SAFETY || 'none').toLowerCase();
-function buildSafetySettings() {
-  if (SAFETY_MODE !== 'none') return undefined;
-  // Gemini models support only these categories (v1beta):
-  // HARASSMENT, HATE_SPEECH, SEXUALLY_EXPLICIT, DANGEROUS_CONTENT, CIVIC_INTEGRITY
-  // Request no blocking for each.
-  const cats = [
-    'HARM_CATEGORY_HARASSMENT',
-    'HARM_CATEGORY_HATE_SPEECH',
-    'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-    'HARM_CATEGORY_DANGEROUS_CONTENT',
-    'HARM_CATEGORY_CIVIC_INTEGRITY',
-  ];
-  return cats.map(category => ({ category, threshold: 'BLOCK_NONE' }));
-}
+// OpenRouter app metadata headers
+const OR_SITE_URL = (process.env.OPENROUTER_SITE_URL || SITE_ORIGIN);
+const OR_APP_NAME = (process.env.OPENROUTER_APP_NAME || 'PhotoRestore');
 
 function policyBlockMessage() {
   return 'We can\'t process images that may include minors, celebrities, or sensitive/controversial topics.';
@@ -184,7 +169,7 @@ app.get('/api/health', (req, res) => {
   const stripeTestMode = !!(STRIPE_SECRET && STRIPE_SECRET.startsWith('sk_test'));
   const freeUsed = (req.signedCookies && req.signedCookies.free_used === '1') || req.cookies.free_used === '1';
   const freeRemaining = freeUsed ? 0 : 1;
-  res.json({ ok: true, modelDefault: MODEL, hasKey: Boolean(API_KEY), uid, usage: data, freeRemaining, stripeTestMode });
+  res.json({ ok: true, modelDefault: OR_MODEL, hasKey: Boolean(OR_API_KEY), uid, usage: data, freeRemaining, stripeTestMode });
 });
 
 // Get current user usage/credits
@@ -287,8 +272,8 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
     if (!prompt || !mimeType || !data) {
       return res.status(400).json({ error: 'Missing prompt, mimeType, or data' });
     }
-    if (!API_KEY) {
-      return res.status(500).json({ error: 'Server misconfigured: GEMINI_API_KEY missing' });
+    if (!OR_API_KEY) {
+      return res.status(500).json({ error: 'Server misconfigured: OPENROUTER_API_KEY missing' });
     }
     const { uid } = getUser(req);
     let credits = getCredits(req);
@@ -297,7 +282,7 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
     const canUseFree = !freeUsed;
     const hasCredits = credits >= 100;
     if (!canUseFree && !hasCredits) {
-      return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits: u.credits, freeRemaining: 0 });
+      return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits, freeRemaining: 0 });
     }
     // Validate image input
     if (typeof mimeType !== 'string' || !mimeType.startsWith('image/')) {
@@ -308,56 +293,74 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
       const maxBytes = 12 * 1024 * 1024; // 12MB cap (defense-in-depth)
       if (bytes > maxBytes) return res.status(413).json({ error: 'Image too large' });
     } catch {}
-    const requested = (modelOverride || MODEL).trim();
-    const useModel = ALLOWED_MODELS.includes(requested) ? requested : MODEL;
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent`;
-    const baseBody = {
-      contents: [
-        {
-          parts: [
-            { text: `${prompt}\n\nReturn only the restored photograph as an image (no text).` },
-            { inlineData: { mimeType, data } },
-          ],
-        },
-      ],
-    };
-    const safetySettings = buildSafetySettings();
-    let json, text;
-    // Try with requested safety settings first
-    if (safetySettings) {
-      const bodyWithSafety = { ...baseBody, safetySettings };
-      const r1 = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(bodyWithSafety) });
-      text = await r1.text();
-      if (r1.ok) { try { json = JSON.parse(text); } catch { json = null; } }
-      // If safety settings are rejected, fall back to no safetySettings
-      if (!json && /safety[_-]sett|HARM_CATEGORY/i.test(text)) {
-        const r2 = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody) });
-        text = await r2.text();
-        if (r2.ok) { try { json = JSON.parse(text); } catch { json = null; } }
-      if (!json) return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), raw: text.slice(0, 1200) });
-      } else if (!json) {
-        let message;
-        try { const j = JSON.parse(text); message = j?.error?.message || j?.message; } catch {}
-        return res.status(r1.status).json({ error: 'upstream_error', message: message || 'Unable to process this image right now.', raw: text.slice(0, 1200) });
-      }
-    } else {
-      const r = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody) });
-      text = await r.text();
-      if (!r.ok) {
-        if (/safety[_-]sett|HARM_CATEGORY/i.test(text)) return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), raw: text.slice(0, 1200) });
-        return res.status(r.status).json({ error: 'upstream_error', message: 'Unable to process this image right now.', raw: text.slice(0, 1200) });
-      }
-      try { json = JSON.parse(text); } catch { return res.status(502).json({ error: 'Non-JSON response', raw: text.slice(0, 1200) }); }
+    let outMime, outData;
+    let blockedByGemini = false;
+    // Try Gemini first if configured
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const requestedGem = (modelOverride || (process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview')).trim();
+        const allowedGem = (process.env.GEMINI_ALLOWED_MODELS ? process.env.GEMINI_ALLOWED_MODELS.split(',').map(s=>s.trim()) : ['gemini-2.5-flash-image-preview','gemini-2.5-flash']);
+        const useGem = allowedGem.includes(requestedGem) ? requestedGem : (process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview');
+        const endpointGem = `https://generativelanguage.googleapis.com/v1beta/models/${useGem}:generateContent`;
+        const bodyGem = { contents: [ { parts: [ { text: `${prompt}\n\nReturn only the restored photograph as an image (no text).` }, { inlineData: { mimeType, data } } ] } ] };
+        const rG = await fetch(endpointGem, { method: 'POST', headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(bodyGem) });
+        const tG = await rG.text();
+        if (rG.ok) {
+          let jG; try { jG = JSON.parse(tG); } catch { jG = null; }
+          if (jG) {
+            const c0 = jG?.candidates?.[0] || {};
+            if (c0.finishReason === 'PROHIBITED_CONTENT' || c0.finishReason === 'SAFETY') {
+              blockedByGemini = true;
+            } else {
+              const parts = c0?.content?.parts || [];
+              const imgPart = parts.find(p => p.inline_data || p.inlineData);
+              const inline = imgPart?.inline_data || imgPart?.inlineData;
+              if (inline?.data) {
+                outMime = inline.mime_type || inline.mimeType || 'image/png';
+                outData = typeof inline.data === 'string' ? inline.data : Buffer.from(inline.data).toString('base64');
+              }
+            }
+          }
+        } else if (/SAFETY|PROHIBITED_CONTENT|policy|safety/i.test(tG)) {
+          blockedByGemini = true;
+        }
+      } catch {}
     }
-    // json already parsed above
-    const c0 = json?.candidates?.[0] || {};
-    if (c0.finishReason === 'PROHIBITED_CONTENT' || c0.finishReason === 'SAFETY') return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), finishReason: c0.finishReason, raw: json });
-    const parts = c0?.content?.parts || [];
-    const imgPart = parts.find(p => p.inline_data || p.inlineData);
-    const inline = imgPart?.inline_data || imgPart?.inlineData;
-    if (!inline?.data) return res.status(502).json({ error: 'No image returned from model', model: useModel, raw: json });
-    const mime = inline.mime_type || inline.mimeType || 'image/png';
-    const dataOut = typeof inline.data === 'string' ? inline.data : Buffer.from(inline.data).toString('base64');
+
+    if (!outData) {
+      // If blocked by Gemini, try OpenRouter; if not blocked and Gemini failed, also try OpenRouter as primary path
+      if (!OR_API_KEY) {
+        if (blockedByGemini) return res.status(422).json({ error: 'blocked', message: policyBlockMessage() });
+        return res.status(500).json({ error: 'Internal error', detail: 'OPENROUTER_API_KEY missing' });
+      }
+      if (blockedByGemini) {
+        try { console.log('[fallback]', { route: 'restore', reason: 'gemini_blocked', uid }); } catch {}
+      }
+      const requested = (modelOverride || OR_MODEL).trim();
+      const useModel = ALLOWED_MODELS.includes(requested) ? requested : OR_MODEL;
+      const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+      const payload = {
+        model: useModel,
+        modalities: ['image','text'],
+        messages: [ { role: 'user', content: [ { type: 'text', text: `${prompt}\n\nReturn only the restored photograph as an image (no text).` }, { type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } } ] } ]
+      };
+      const headers = { 'Authorization': `Bearer ${OR_API_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': OR_SITE_URL, 'X-Title': OR_APP_NAME };
+      const r = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(payload) });
+      const text = await r.text();
+      if (!r.ok) {
+        const isPolicy = /policy|safety|not\s+allowed|blocked/i.test(text);
+        if (isPolicy) return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), raw: text.slice(0, 1200) });
+        let message; try { const j = JSON.parse(text); message = j?.error?.message || j?.message; } catch {}
+        return res.status(r.status).json({ error: 'upstream_error', message: message || 'Unable to process this image right now.', raw: text.slice(0, 1200) });
+      }
+      let result; try { result = JSON.parse(text); } catch { return res.status(502).json({ error: 'Non-JSON response', raw: text.slice(0,1200) }); }
+      const imageUrl = result?.choices?.[0]?.message?.images?.[0]?.image_url?.url || result?.choices?.[0]?.message?.images?.[0]?.image_url;
+      if (!imageUrl || !/^data:image\//.test(imageUrl)) { return res.status(502).json({ error: 'no_image', message: 'No children or erotic pictures', model: useModel, raw: result }); }
+      const m = imageUrl.match(/^data:([^;]+);base64,(.*)$/);
+      outMime = m ? m[1] : 'image/png';
+      outData = m ? m[2] : null;
+      if (!outData) return res.status(502).json({ error: 'Malformed image data URL', raw: imageUrl.slice(0,120) });
+    }
     // Deduct usage: prefer credits, else consume free
     let freeRemaining;
     // Prefer consuming the free restore first, even if credits are available
@@ -373,7 +376,7 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
     } else {
       freeRemaining = 0;
     }
-    return res.json({ mimeType: mime, data: dataOut, modelUsed: useModel, usage: { credits, freeRemaining } });
+    return res.json({ mimeType: outMime, data: outData, usage: { credits, freeRemaining } });
   } catch (err) {
     const message = err?.message || String(err);
     console.error('Restore proxy error:', message);
@@ -387,7 +390,6 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
   try {
     const { prompt, model: modelOverride } = req.body || {};
     if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
-    if (!API_KEY) return res.status(500).json({ error: 'Server misconfigured: GEMINI_API_KEY missing' });
 
     const { uid } = getUser(req);
     let credits = getCredits(req);
@@ -397,48 +399,72 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
     if (!canUseFree && !hasCredits) {
       return res.status(402).json({ error: 'payment_required', message: 'Not enough credits. Each image costs 100 credits.', credits, freeRemaining: 0 });
     }
-    const requested = (modelOverride || MODEL).trim();
-    const useModel = ALLOWED_MODELS.includes(requested) ? requested : MODEL;
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent`;
-    const baseBody2 = { contents: [{ parts: [{ text: prompt }] }] };
-    const s02 = buildSafetySettings();
-    let json2, text2;
-    if (s02) {
-      const r1b = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...baseBody2, safetySettings: s02 }) });
-      text2 = await r1b.text();
-      if (r1b.ok) { try { json2 = JSON.parse(text2); } catch { json2 = null; } }
-      if (!json2 && /safety[_-]sett|HARM_CATEGORY/i.test(text2)) {
-        const r2b = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody2) });
-        text2 = await r2b.text();
-        if (r2b.ok) { try { json2 = JSON.parse(text2); } catch { json2 = null; } }
-        if (!json2) return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), raw: (text2 || '').slice(0, 1200) });
-      } else if (!json2) {
-        let message2;
-        try { const j2 = JSON.parse(text2); message2 = j2?.error?.message || j2?.message; } catch {}
-        return res.status(r1b.status).json({ error: 'upstream_error', message: message2 || 'Unable to process this image right now.', raw: (text2 || '').slice(0, 1200) });
+
+    let outMime, outData;
+    let blockedByGemini = false;
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const requestedGem = (modelOverride || (process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview')).trim();
+        const allowedGem = (process.env.GEMINI_ALLOWED_MODELS ? process.env.GEMINI_ALLOWED_MODELS.split(',').map(s=>s.trim()) : ['gemini-2.5-flash-image-preview','gemini-2.5-flash']);
+        const useGem = allowedGem.includes(requestedGem) ? requestedGem : (process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview');
+        const endpointGem = `https://generativelanguage.googleapis.com/v1beta/models/${useGem}:generateContent`;
+        const bodyGem = { contents: [ { parts: [ { text: prompt } ] } ] };
+        const rG = await fetch(endpointGem, { method: 'POST', headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(bodyGem) });
+        const tG = await rG.text();
+        if (rG.ok) {
+          let jG; try { jG = JSON.parse(tG); } catch { jG = null; }
+          if (jG) {
+            const c0 = jG?.candidates?.[0] || {};
+            if (c0.finishReason === 'PROHIBITED_CONTENT' || c0.finishReason === 'SAFETY') blockedByGemini = true;
+            else {
+              const parts = c0?.content?.parts || [];
+              const imgPart = parts.find(p => p.inline_data || p.inlineData);
+              const inline = imgPart?.inline_data || imgPart?.inlineData;
+              if (inline?.data) {
+                outMime = inline.mime_type || inline.mimeType || 'image/png';
+                outData = typeof inline.data === 'string' ? inline.data : Buffer.from(inline.data).toString('base64');
+              }
+            }
+          }
+        } else if (/SAFETY|PROHIBITED_CONTENT|policy|safety/i.test(tG)) {
+          blockedByGemini = true;
+        }
+      } catch {}
+    }
+
+    if (!outData) {
+      if (!OR_API_KEY) {
+        if (blockedByGemini) return res.status(422).json({ error: 'blocked', message: policyBlockMessage() });
+        return res.status(500).json({ error: 'Internal error', detail: 'OPENROUTER_API_KEY missing' });
       }
-    } else {
-      const r3 = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody2) });
-      text2 = await r3.text();
+      if (blockedByGemini) {
+        try { console.log('[fallback]', { route: 'restore-text', reason: 'gemini_blocked', uid }); } catch {}
+      }
+      const requested = (modelOverride || OR_MODEL).trim();
+      const useModel = ALLOWED_MODELS.includes(requested) ? requested : OR_MODEL;
+      const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+      const payload = { model: useModel, modalities: ['image','text'], messages: [ { role: 'user', content: [ { type: 'text', text: prompt } ] } ] };
+      const headers = { 'Authorization': `Bearer ${OR_API_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': OR_SITE_URL, 'X-Title': OR_APP_NAME };
+      const r3 = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(payload) });
+      const text2 = await r3.text();
       if (!r3.ok) {
-        if (/safety[_-]sett|HARM_CATEGORY/i.test(text2)) return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), raw: (text2 || '').slice(0, 1200) });
-        return res.status(r3.status).json({ error: 'upstream_error', message: 'Unable to process this image right now.', raw: (text2 || '').slice(0, 1200) });
+        const isPolicy = /policy|safety|not\s+allowed|blocked/i.test(text2);
+        if (isPolicy) return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), raw: (text2 || '').slice(0,1200) });
+        let message2; try { const j2 = JSON.parse(text2); message2 = j2?.error?.message || j2?.message; } catch {}
+        return res.status(r3.status).json({ error: 'upstream_error', message: message2 || 'Unable to process this image right now.', raw: (text2 || '').slice(0, 1200) });
       }
-      try { json2 = JSON.parse(text2); } catch { return res.status(502).json({ error: 'Non-JSON response', raw: (text2 || '').slice(0, 1200) }); }
+      let result2; try { result2 = JSON.parse(text2); } catch { return res.status(502).json({ error: 'Non-JSON response', raw: (text2 || '').slice(0,1200) }); }
+      const imageUrl2 = result2?.choices?.[0]?.message?.images?.[0]?.image_url?.url || result2?.choices?.[0]?.message?.images?.[0]?.image_url;
+      if (!imageUrl2 || !/^data:image\//.test(imageUrl2)) {
+        const joinedText = result2?.choices?.[0]?.message?.content || null;
+        return res.status(502).json({ error: 'no_image', message: 'No children or erotic pictures', model: useModel, text: joinedText, raw: result2 });
+      }
+      const m2 = imageUrl2.match(/^data:([^;]+);base64,(.*)$/);
+      outMime = m2 ? m2[1] : 'image/png';
+      outData = m2 ? m2[2] : null;
     }
-    const c0 = json2?.candidates?.[0] || {};
-    if (c0.finishReason === 'PROHIBITED_CONTENT' || c0.finishReason === 'SAFETY') return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), finishReason: c0.finishReason, raw: json2 });
-    const parts = c0?.content?.parts || [];
-    const imgPart = parts.find(p => p.inline_data || p.inlineData);
-    const inline = imgPart?.inline_data || imgPart?.inlineData;
-    if (!inline?.data) {
-      const joinedText = parts.map(p => p.text).filter(Boolean).join('\n') || null;
-      return res.status(502).json({ error: 'No image returned from model', model: useModel, text: joinedText, raw: json2 });
-    }
-    const mime = inline.mime_type || inline.mimeType || 'image/png';
-    const dataOut = typeof inline.data === 'string' ? inline.data : Buffer.from(inline.data).toString('base64');
+
     let freeRemaining;
-    // Prefer consuming the free restore first, even if credits are available
     if (canUseFree) {
       const isProd = process.env.NODE_ENV === 'production';
       res.cookie('free_used', '1', { httpOnly: true, secure: isProd, sameSite: 'Lax', maxAge: 2 * 365 * 24 * 60 * 60 * 1000, signed: Boolean(COOKIE_SECRET) });
@@ -451,7 +477,7 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
     } else {
       freeRemaining = 0;
     }
-    return res.json({ mimeType: mime, data: dataOut, modelUsed: useModel, usage: { credits, freeRemaining } });
+    return res.json({ mimeType: outMime || 'image/png', data: outData, usage: { credits, freeRemaining } });
   } catch (err) {
     const message = err?.message || String(err);
     console.error('Restore-text proxy error:', message);
