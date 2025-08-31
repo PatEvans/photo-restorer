@@ -93,16 +93,18 @@ function getSiteOrigin(req) {
 // Safety settings for Gemini: allow env override (e.g., GEMINI_SAFETY=none)
 const SAFETY_MODE = (process.env.GEMINI_SAFETY || 'none').toLowerCase();
 function buildSafetySettings() {
-  if (SAFETY_MODE === 'none') {
-    return [
-      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_SEXUAL_CONTENT', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_VIOLENCE', threshold: 'BLOCK_NONE' },
-    ];
-  }
-  return undefined;
+  if (SAFETY_MODE !== 'none') return undefined;
+  // Gemini models support only these categories (v1beta):
+  // HARASSMENT, HATE_SPEECH, SEXUALLY_EXPLICIT, DANGEROUS_CONTENT, CIVIC_INTEGRITY
+  // Request no blocking for each.
+  const cats = [
+    'HARM_CATEGORY_HARASSMENT',
+    'HARM_CATEGORY_HATE_SPEECH',
+    'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+    'HARM_CATEGORY_DANGEROUS_CONTENT',
+    'HARM_CATEGORY_CIVIC_INTEGRITY',
+  ];
+  return cats.map(category => ({ category, threshold: 'BLOCK_NONE' }));
 }
 
 // Assign anonymous uid cookie if missing
@@ -305,7 +307,7 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
     const requested = (modelOverride || MODEL).trim();
     const useModel = ALLOWED_MODELS.includes(requested) ? requested : MODEL;
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent`;
-    const body = {
+    const baseBody = {
       contents: [
         {
           parts: [
@@ -316,12 +318,29 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
       ],
     };
     const safetySettings = buildSafetySettings();
-    if (safetySettings) body.safetySettings = safetySettings;
-
-    const r = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const text = await r.text();
-    if (!r.ok) return res.status(r.status).send(text);
-    let json; try { json = JSON.parse(text); } catch { return res.status(502).json({ error: 'Non-JSON response', raw: text.slice(0, 1200) }); }
+    let json, text;
+    // Try with requested safety settings first
+    if (safetySettings) {
+      const bodyWithSafety = { ...baseBody, safetySettings };
+      const r1 = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(bodyWithSafety) });
+      text = await r1.text();
+      if (r1.ok) { try { json = JSON.parse(text); } catch { json = null; } }
+      // If safety settings are rejected, fall back to no safetySettings
+      if (!json && /safety[_-]sett|HARM_CATEGORY/i.test(text)) {
+        const r2 = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody) });
+        text = await r2.text();
+        if (r2.ok) { try { json = JSON.parse(text); } catch { json = null; } }
+        if (!json) return res.status(r2.status).send(text);
+      } else if (!json) {
+        return res.status(r1.status).send(text);
+      }
+    } else {
+      const r = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody) });
+      text = await r.text();
+      if (!r.ok) return res.status(r.status).send(text);
+      try { json = JSON.parse(text); } catch { return res.status(502).json({ error: 'Non-JSON response', raw: text.slice(0, 1200) }); }
+    }
+    // json already parsed above
     const c0 = json?.candidates?.[0] || {};
     if (c0.finishReason === 'PROHIBITED_CONTENT' || c0.finishReason === 'SAFETY') return res.status(422).json({ error: 'Model blocked content', finishReason: c0.finishReason, raw: json });
     const parts = c0?.content?.parts || [];
@@ -372,21 +391,35 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
     const requested = (modelOverride || MODEL).trim();
     const useModel = ALLOWED_MODELS.includes(requested) ? requested : MODEL;
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent`;
-    const body = { contents: [{ parts: [{ text: prompt }] }] };
-    const safetySettings2 = buildSafetySettings();
-    if (safetySettings2) body.safetySettings = safetySettings2;
-    const r = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const text = await r.text();
-    if (!r.ok) return res.status(r.status).send(text);
-    let json; try { json = JSON.parse(text); } catch { return res.status(502).json({ error: 'Non-JSON response', raw: text.slice(0, 1200) }); }
-    const c0 = json?.candidates?.[0] || {};
+    const baseBody2 = { contents: [{ parts: [{ text: prompt }] }] };
+    const s02 = buildSafetySettings();
+    let json2, text2;
+    if (s02) {
+      const r1b = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...baseBody2, safetySettings: s02 }) });
+      text2 = await r1b.text();
+      if (r1b.ok) { try { json2 = JSON.parse(text2); } catch { json2 = null; } }
+      if (!json2 && /safety[_-]sett|HARM_CATEGORY/i.test(text2)) {
+        const r2b = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody2) });
+        text2 = await r2b.text();
+        if (r2b.ok) { try { json2 = JSON.parse(text2); } catch { json2 = null; } }
+        if (!json2) return res.status(r2b.status).send(text2);
+      } else if (!json2) {
+        return res.status(r1b.status).send(text2);
+      }
+    } else {
+      const r3 = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody2) });
+      text2 = await r3.text();
+      if (!r3.ok) return res.status(r3.status).send(text2);
+      try { json2 = JSON.parse(text2); } catch { return res.status(502).json({ error: 'Non-JSON response', raw: (text2 || '').slice(0, 1200) }); }
+    }
+    const c0 = json2?.candidates?.[0] || {};
     if (c0.finishReason === 'PROHIBITED_CONTENT' || c0.finishReason === 'SAFETY') return res.status(422).json({ error: 'Model blocked content', finishReason: c0.finishReason, raw: json });
     const parts = c0?.content?.parts || [];
     const imgPart = parts.find(p => p.inline_data || p.inlineData);
     const inline = imgPart?.inline_data || imgPart?.inlineData;
     if (!inline?.data) {
       const joinedText = parts.map(p => p.text).filter(Boolean).join('\n') || null;
-      return res.status(502).json({ error: 'No image returned from model', model: useModel, text: joinedText, raw: json });
+      return res.status(502).json({ error: 'No image returned from model', model: useModel, text: joinedText, raw: json2 });
     }
     const mime = inline.mime_type || inline.mimeType || 'image/png';
     const dataOut = typeof inline.data === 'string' ? inline.data : Buffer.from(inline.data).toString('base64');
