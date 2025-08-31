@@ -107,6 +107,10 @@ function buildSafetySettings() {
   return cats.map(category => ({ category, threshold: 'BLOCK_NONE' }));
 }
 
+function policyBlockMessage() {
+  return 'We can\'t process images that may include minors, celebrities, or sensitive/controversial topics.';
+}
+
 // Assign anonymous uid cookie if missing
 app.use((req, res, next) => {
   let uid = req.cookies.uid;
@@ -330,19 +334,24 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
         const r2 = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody) });
         text = await r2.text();
         if (r2.ok) { try { json = JSON.parse(text); } catch { json = null; } }
-        if (!json) return res.status(r2.status).send(text);
+      if (!json) return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), raw: text.slice(0, 1200) });
       } else if (!json) {
-        return res.status(r1.status).send(text);
+        let message;
+        try { const j = JSON.parse(text); message = j?.error?.message || j?.message; } catch {}
+        return res.status(r1.status).json({ error: 'upstream_error', message: message || 'Unable to process this image right now.', raw: text.slice(0, 1200) });
       }
     } else {
       const r = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody) });
       text = await r.text();
-      if (!r.ok) return res.status(r.status).send(text);
+      if (!r.ok) {
+        if (/safety[_-]sett|HARM_CATEGORY/i.test(text)) return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), raw: text.slice(0, 1200) });
+        return res.status(r.status).json({ error: 'upstream_error', message: 'Unable to process this image right now.', raw: text.slice(0, 1200) });
+      }
       try { json = JSON.parse(text); } catch { return res.status(502).json({ error: 'Non-JSON response', raw: text.slice(0, 1200) }); }
     }
     // json already parsed above
     const c0 = json?.candidates?.[0] || {};
-    if (c0.finishReason === 'PROHIBITED_CONTENT' || c0.finishReason === 'SAFETY') return res.status(422).json({ error: 'Model blocked content', finishReason: c0.finishReason, raw: json });
+    if (c0.finishReason === 'PROHIBITED_CONTENT' || c0.finishReason === 'SAFETY') return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), finishReason: c0.finishReason, raw: json });
     const parts = c0?.content?.parts || [];
     const imgPart = parts.find(p => p.inline_data || p.inlineData);
     const inline = imgPart?.inline_data || imgPart?.inlineData;
@@ -402,18 +411,23 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
         const r2b = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody2) });
         text2 = await r2b.text();
         if (r2b.ok) { try { json2 = JSON.parse(text2); } catch { json2 = null; } }
-        if (!json2) return res.status(r2b.status).send(text2);
+        if (!json2) return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), raw: (text2 || '').slice(0, 1200) });
       } else if (!json2) {
-        return res.status(r1b.status).send(text2);
+        let message2;
+        try { const j2 = JSON.parse(text2); message2 = j2?.error?.message || j2?.message; } catch {}
+        return res.status(r1b.status).json({ error: 'upstream_error', message: message2 || 'Unable to process this image right now.', raw: (text2 || '').slice(0, 1200) });
       }
     } else {
       const r3 = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(baseBody2) });
       text2 = await r3.text();
-      if (!r3.ok) return res.status(r3.status).send(text2);
+      if (!r3.ok) {
+        if (/safety[_-]sett|HARM_CATEGORY/i.test(text2)) return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), raw: (text2 || '').slice(0, 1200) });
+        return res.status(r3.status).json({ error: 'upstream_error', message: 'Unable to process this image right now.', raw: (text2 || '').slice(0, 1200) });
+      }
       try { json2 = JSON.parse(text2); } catch { return res.status(502).json({ error: 'Non-JSON response', raw: (text2 || '').slice(0, 1200) }); }
     }
     const c0 = json2?.candidates?.[0] || {};
-    if (c0.finishReason === 'PROHIBITED_CONTENT' || c0.finishReason === 'SAFETY') return res.status(422).json({ error: 'Model blocked content', finishReason: c0.finishReason, raw: json });
+    if (c0.finishReason === 'PROHIBITED_CONTENT' || c0.finishReason === 'SAFETY') return res.status(422).json({ error: 'blocked', message: policyBlockMessage(), finishReason: c0.finishReason, raw: json2 });
     const parts = c0?.content?.parts || [];
     const imgPart = parts.find(p => p.inline_data || p.inlineData);
     const inline = imgPart?.inline_data || imgPart?.inlineData;

@@ -397,17 +397,17 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
         try {
             // Prefer direct Gemini image restoration only
             const restoredImageData = await this.geminiImageRestoration();
-            
             if (restoredImageData) {
                 this.restoredImageData = restoredImageData;
                 this.showResults();
             } else {
-                throw new Error('Failed to restore image');
+                // Error already surfaced by geminiImageRestoration; just reset
+                this.resetInterface();
             }
         } catch (error) {
             console.error('Restoration error:', error);
             const msg = (error && error.message) ? error.message : String(error);
-            alert(`Failed to restore the image via Gemini.\n\nDetails: ${msg}`);
+            this.showToast('We couldn’t restore this photo.', msg, 'error');
             this.resetInterface();
         }
     }
@@ -435,10 +435,33 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
                     this.openDrawer();
                     return null;
                 }
-                // Try to extract server-side error details
-                let detail = '';
-                try { const t = await response.text(); detail = t?.slice(0, 400); } catch {}
-                throw new Error(`Restore API error: ${response.status}${detail ? ' — ' + detail : ''}`);
+                // Prefer friendly server message
+                try {
+                    const t = await response.text();
+                    try {
+                        const j = JSON.parse(t);
+                        if (j.error === 'blocked') {
+                            const html = `We can’t process images of minors, celebrities, or sensitive/controversial topics.
+                                <div style="margin-top:6px;">Try a different photo that:
+                                <ul style="margin:6px 0 0 18px;">
+                                  <li>Doesn’t include children or public figures</li>
+                                  <li>Is a personal/family photo of adults</li>
+                                  <li>Doesn’t depict graphic or sensitive content</li>
+                                </ul></div>`;
+                            this.showToast('This photo can’t be processed', html, 'error', true);
+                        } else {
+                            const msg = j.message || j.error || 'Unable to process this image right now.';
+                            this.showToast('We couldn’t restore this photo', msg, 'error');
+                        }
+                        return null;
+                    } catch {
+                        this.showToast('This photo can’t be processed', 'We can’t process images of minors, celebrities, or controversial topics.', 'error');
+                        return null;
+                    }
+                } catch {
+                    this.showToast('This photo can’t be processed', 'Please try a different image in a few minutes.', 'error');
+                    return null;
+                }
             }
 
             const result = await response.json();
@@ -456,7 +479,8 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
                     const s = JSON.stringify(slim, null, 2);
                     snippet = s.length > 500 ? s.slice(0, 500) + '…' : s;
                 } catch {}
-                throw new Error(`Model did not return an image.${snippet ? '\n\nServer said:\n' + snippet : ''}`);
+                this.showToast('This photo can’t be processed', 'We can’t process images of minors, celebrities, or controversial topics.', 'error');
+                return null;
             }
             const mime = result.mimeType || 'image/jpeg';
             const byteChars = atob(result.data);
@@ -473,6 +497,29 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
         } catch (err) {
             console.error('Gemini image restoration failed:', err);
             throw err;
+        }
+    }
+
+    showToast(title, detail = '', type = 'error', isHtml = false) {
+        try {
+            // Remove existing toasts so we don’t stack
+            document.querySelectorAll('.toast').forEach(t => t.remove());
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.setAttribute('role', 'status');
+            const safeDetail = isHtml ? detail : (detail ? String(detail).replace(/[<>]/g, c => ({'<':'&lt;','>':'&gt;'}[c])) : '');
+            toast.innerHTML = `
+                <button class="t-close" aria-label="Close">✕</button>
+                <div class="t-title">${title}</div>
+                ${safeDetail ? `<div class="t-detail">${safeDetail}</div>` : ''}
+            `;
+            document.body.appendChild(toast);
+            const close = () => { try { toast.remove(); } catch {} };
+            toast.querySelector('.t-close').addEventListener('click', close);
+            setTimeout(close, 6500);
+        } catch (e) {
+            // Fallback
+            alert(title + (detail ? `\n\n${detail}` : ''));
         }
     }
 
