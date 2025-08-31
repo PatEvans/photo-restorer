@@ -782,23 +782,30 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
                 });
             };
             const pointerMove = (e) => {
-                if (!dragging && e.pointerType !== 'mouse') return; // avoid passive jitter on touch unless dragging
+                if (!dragging && e.pointerType !== 'mouse') return; // touch: only move when dragging
                 nextP = computeP(e.clientX);
                 schedule();
+                if (dragging) e.preventDefault();
             };
             comp.addEventListener('pointerdown', (e) => {
                 dragging = true;
                 comp.setPointerCapture?.(e.pointerId);
                 nextP = computeP(e.clientX);
                 schedule();
+                e.preventDefault();
             });
             comp.addEventListener('pointermove', pointerMove);
             const end = (e) => { dragging = false; comp.releasePointerCapture?.(e.pointerId); };
             comp.addEventListener('pointerup', end);
             comp.addEventListener('pointercancel', end);
             comp.addEventListener('pointerleave', (e) => { if (dragging) end(e); });
-            // Also support hover on desktop
-            comp.addEventListener('mousemove', (e) => { if (!dragging) { nextP = computeP(e.clientX); schedule(); } });
+            // Hover support only on fine pointers (desktop)
+            try {
+                const isFine = window.matchMedia('(pointer: fine)').matches;
+                if (isFine) {
+                    comp.addEventListener('mousemove', (e) => { if (!dragging) { nextP = computeP(e.clientX); schedule(); } }, { passive: true });
+                }
+            } catch {}
             setPos(50);
         });
     }

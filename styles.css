@@ -538,6 +538,10 @@ body {
     cursor: ew-resize;
     --pos: 50%;
     min-height: 1px; /* height set by JS to match image ratio */
+    /* Improve mobile slider feel */
+    touch-action: pan-y; /* allow vertical page scroll, capture horizontal drag */
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .compare img {
