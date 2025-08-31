@@ -594,12 +594,12 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
             this.uploadBtn.textContent = 'Upload a Photo';
             this.uploadBtn.setAttribute('aria-label', 'Upload one Photo for free');
             this.uploadBtn.title = 'Your first restore is free';
-            if (this.uploadHeading) this.uploadHeading.textContent = 'Restore a Photo - 1 Free';
+            if (this.uploadHeading) this.uploadHeading.textContent = 'Restore a Photo with AI - 1 Free';
         } else {
             this.uploadBtn.textContent = 'Upload a Photo';
             this.uploadBtn.setAttribute('aria-label', 'Upload a Photo (costs 100 credits)');
             this.uploadBtn.removeAttribute('title');
-            if (this.uploadHeading) this.uploadHeading.textContent = 'Restore a Photo - 100 Credits';
+            if (this.uploadHeading) this.uploadHeading.textContent = 'Restore a Photo with AI - 100 Credits';
         }
     }
 

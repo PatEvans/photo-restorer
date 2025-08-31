@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PhotoRestore</title>
+  <title>PhotoRestore AI — AI Photo Restoration & Colorization</title>
+  <meta name="description" content="PhotoRestore AI restores, colorizes, and upscales old photos using AI. Upload a photo and get an AI‑enhanced, high‑resolution result in seconds." />
+  <meta property="og:title" content="PhotoRestore AI — AI Photo Restoration & Colorization" />
+  <meta property="og:description" content="Restore, colorize, and upscale your photos with AI." />
+  <meta name="twitter:card" content="summary_large_image" />
   <link rel="stylesheet" href="styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
   <style>
@@ -24,7 +28,7 @@
 <body>
   <header class="header">
     <div class="container narrow header-bar">
-      <a class="logo" href="/" style="margin:0" aria-label="Go to homepage">PhotoRestore</a>
+      <a class="logo" href="/" style="margin:0" aria-label="Go to homepage">PhotoRestore <span style="font-weight:800">AI</span></a>
       <div class="header-actions">
         <div id="creditInfoTop" class="credit-badge" aria-live="polite">Checking credits…</div>
         <button class="btn btn-cta" id="buyBtnTop" aria-label="Buy credits">Buy Credits</button>
@@ -39,7 +43,7 @@
       <section class="upload-section">
         <div class="upload-area" id="uploadArea">
           <div class="upload-content center stack">
-            <h2 id="uploadHeading" style="text-align:center;">Restore a Photo</h2>
+            <h2 id="uploadHeading" style="text-align:center;">Restore a Photo with AI</h2>
             <p style="text-align:center;">Drop an image here or choose a file</p>
             <input type="file" id="fileInput" accept="image/*" hidden />
             <button class="upload-btn" id="uploadBtn" aria-label="Upload a Photo">Upload a Photo</button>
@@ -63,7 +67,7 @@
             </div>
             <div class="image-side">
               <h3>Restored</h3>
-              <div class="image-frame"><img id="restoredImage" alt="Restored" /></div>
+              <div class="image-frame"><img id="restoredImage" alt="AI Restored" /></div>
             </div>
           </div>
           <div class="actions" style="margin-top:1rem;">
