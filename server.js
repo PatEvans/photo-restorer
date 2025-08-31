@@ -90,6 +90,21 @@ function getSiteOrigin(req) {
   return `http://127.0.0.1:${ACTUAL_PORT || 3000}`;
 }
 
+// Safety settings for Gemini: allow env override (e.g., GEMINI_SAFETY=none)
+const SAFETY_MODE = (process.env.GEMINI_SAFETY || 'none').toLowerCase();
+function buildSafetySettings() {
+  if (SAFETY_MODE === 'none') {
+    return [
+      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_SEXUAL_CONTENT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_VIOLENCE', threshold: 'BLOCK_NONE' },
+    ];
+  }
+  return undefined;
+}
+
 // Assign anonymous uid cookie if missing
 app.use((req, res, next) => {
   let uid = req.cookies.uid;
@@ -300,6 +315,8 @@ app.post('/api/restore', rateLimit({ windowMs: 10 * 60 * 1000, limit: 30 }), asy
         },
       ],
     };
+    const safetySettings = buildSafetySettings();
+    if (safetySettings) body.safetySettings = safetySettings;
 
     const r = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const text = await r.text();
@@ -356,6 +373,8 @@ app.post('/api/restore-text', rateLimit({ windowMs: 10 * 60 * 1000, limit: 20 })
     const useModel = ALLOWED_MODELS.includes(requested) ? requested : MODEL;
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent`;
     const body = { contents: [{ parts: [{ text: prompt }] }] };
+    const safetySettings2 = buildSafetySettings();
+    if (safetySettings2) body.safetySettings = safetySettings2;
     const r = await fetch(endpoint, { method: 'POST', headers: { 'x-goog-api-key': API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const text = await r.text();
     if (!r.ok) return res.status(r.status).send(text);
