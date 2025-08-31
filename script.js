@@ -430,8 +430,10 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
 
             if (!response.ok) {
                 if (response.status === 402) {
-                    await response.json().catch(() => ({}));
-                    alert('Not enough credits.');
+                    const j = await response.json().catch(() => ({}));
+                    const bal = (j && typeof j.credits === 'number') ? j.credits : null;
+                    const msg = `Each image costs 100 credits.${bal !== null ? ` Your balance: ${bal}.` : ''}`;
+                    this.showToast('Not enough credits', msg, 'warn');
                     this.openDrawer();
                     return null;
                 }
@@ -450,16 +452,26 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
                                 </ul></div>`;
                             this.showToast('This photo can’t be processed', html, 'error', true);
                         } else {
-                            const msg = j.message || j.error || 'Unable to process this image right now.';
-                            this.showToast('We couldn’t restore this photo', msg, 'error');
+                            // If server didn’t classify, double-check balance to avoid generic errors
+                            const handled = await this.maybeHandleInsufficientCredits();
+                            if (!handled) {
+                                const msg = j.message || j.error || 'Unable to process this image right now.';
+                                this.showToast('We couldn’t restore this photo', msg, 'error');
+                            }
                         }
                         return null;
                     } catch {
-                        this.showToast('This photo can’t be processed', 'We can’t process images of minors, celebrities, or controversial topics.', 'error');
+                        const handled = await this.maybeHandleInsufficientCredits();
+                        if (!handled) {
+                            this.showToast('This photo can’t be processed', 'We can’t process images of minors, celebrities, or controversial topics.', 'error');
+                        }
                         return null;
                     }
                 } catch {
-                    this.showToast('This photo can’t be processed', 'Please try a different image in a few minutes.', 'error');
+                    const handled = await this.maybeHandleInsufficientCredits();
+                    if (!handled) {
+                        this.showToast('This photo can’t be processed', 'Please try a different image in a few minutes.', 'error');
+                    }
                     return null;
                 }
             }
@@ -521,6 +533,22 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
             // Fallback
             alert(title + (detail ? `\n\n${detail}` : ''));
         }
+    }
+
+    async maybeHandleInsufficientCredits() {
+        try {
+            const r = await fetch('/api/me', { credentials: 'include' });
+            const j = await r.json().catch(() => ({}));
+            const credits = j?.credits ?? 0;
+            const freeRem = j?.freeRemaining ?? 0;
+            if (credits < 100 && freeRem <= 0) {
+                const msg = `Each image costs 100 credits. Your balance: ${credits}.`;
+                this.showToast('Not enough credits', msg, 'warn');
+                this.openDrawer();
+                return true;
+            }
+        } catch {}
+        return false;
     }
 
     async refreshMe() {
