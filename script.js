@@ -4,13 +4,14 @@ class PhotoRestorer {
         this.setupEventListeners();
         this.currentImage = null;
         this.restoredImageData = null;
+        this.mode = document.body?.dataset?.mode || 'restore';
         this._recentUrls = new Set();
         
         // Backend proxy for Gemini (server handles API key)
         this.serverEndpoint = '/api/analyze';
         
-        // Photo restoration prompt (original, with colorization guidance)
-        this.restorationPrompt = `**Primary Goal:** To breathe new life into this historical photograph through faithful restoration, comprehensive and photorealistic colorization, and careful upscaling. The objective is to create a final image that looks like a well-preserved, authentic color photograph from the historical era, representing the moment as it truly appeared.
+        // Base prompts per mode
+        const restorePrompt = `**Primary Goal:** To breathe new life into this historical photograph through faithful restoration, comprehensive and photorealistic colorization, and careful upscaling. The objective is to create a final image that looks like a well-preserved, authentic color photograph from the historical era, representing the moment as it truly appeared.
 
 **Core Principles for a True-to-Life Result:**
 - **Photorealistic Authenticity:** The highest priority is making the entire scene—subjects, environment, and objects—look completely real and true-to-life. The image should be a faithful window into the past.
@@ -42,6 +43,15 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
 3. What damage needs to be repaired
 4. What specific historical context should guide the colorization
 5. Specific RGB color values for major elements when possible`;
+
+        const ghibliPrompt = `Convert this photo into an anime-inspired watercolor illustration with soft, organic line work and pastel palettes. Keep facial features and composition recognizable; avoid text. Backgrounds should feel hand-painted with cinematic depth and gentle gradients. Return only the final image.`;
+
+        // locationPrompt is combined with a chosen location at runtime
+        this.locationPromptBase = `Replace the background with the specified location while keeping the subject intact. Match realistic lighting, weather, and color grading for that place and time. Preserve identity, clothing, and pose. Avoid artifacts or extra limbs. Return only the final image.`;
+
+        this.restorationPrompt = restorePrompt;
+        if (this.mode === 'ghibli') this.restorationPrompt = ghibliPrompt;
+        // location mode handled at request time by merging selected location text
     }
 
     async getStripe() {
@@ -95,11 +105,23 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
         this.clearRecentBtn = document.getElementById('clearRecentBtn');
         this.recentPrev = document.getElementById('recentPrev');
         this.recentNext = document.getElementById('recentNext');
+        // Location controls (if present)
+        this.locationPreset = document.getElementById('locationPreset');
+        this.locationCustom = document.getElementById('locationCustom');
+        this.toolControls = document.getElementById('toolControls');
+        // Hamburger nav (drawer-style)
+        this.navToggle = document.getElementById('navToggle');
+        this.navDrawer = document.getElementById('navDrawer');
+        this.navClose = document.getElementById('navClose');
+        this.navOverlay = document.getElementById('navOverlay');
     }
 
     setupEventListeners() {
-        // Upload area click
-        this.uploadArea.addEventListener('click', () => {
+        // Upload area click (ignore clicks on interactive controls like location selectors)
+        this.uploadArea.addEventListener('click', (e) => {
+            if (e && (e.target.closest('button, a, input, select, textarea, label') || (this.toolControls && this.toolControls.contains(e.target)))) {
+                return; // let the control handle it (prevents file dialog opening)
+            }
             this.fileInput.click();
         });
 
@@ -159,6 +181,18 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
         }
         if (this.drawerClose) {
             this.drawerClose.addEventListener('click', () => this.closeDrawer());
+        }
+        // Hamburger navigation
+        if (this.navToggle && this.navDrawer) {
+            this.navToggle.addEventListener('click', () => this.openNav());
+        }
+        if (this.navOverlay) this.navOverlay.addEventListener('click', () => this.closeNav());
+        if (this.navClose) this.navClose.addEventListener('click', () => this.closeNav());
+        if (this.navDrawer) {
+            this.navDrawer.querySelectorAll('.option').forEach(btn => btn.addEventListener('click', () => {
+                const href = btn.getAttribute('data-href');
+                if (href) window.location.href = href;
+            }));
         }
         // Option buttons inside drawer
         if (this.buyDrawer) {
@@ -249,6 +283,29 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
         if (this.recentPrev) this.recentPrev.addEventListener('click', () => this.scrollRecent(-1));
         if (this.recentNext) this.recentNext.addEventListener('click', () => this.scrollRecent(1));
         if (this.recentGrid) this.recentGrid.addEventListener('scroll', () => this.updateRecentArrows());
+    }
+
+    openNav() {
+        if (!this.navDrawer) return;
+        this.navDrawer.hidden = false;
+        if (this.navOverlay) this.navOverlay.hidden = false;
+        // open on next frame to ensure transition triggers
+        requestAnimationFrame(() => {
+            this.navDrawer.classList.add('open');
+            if (this.navOverlay) this.navOverlay.classList.add('open');
+        });
+        if (this.navToggle) this.navToggle.setAttribute('aria-expanded', 'true');
+        this._escNav = (e) => { if (e.key === 'Escape') this.closeNav(); };
+        window.addEventListener('keydown', this._escNav);
+    }
+    closeNav() {
+        if (!this.navDrawer) return;
+        this.navDrawer.classList.remove('open');
+        const hide = () => { this.navDrawer.hidden = true; this.navDrawer.removeEventListener('transitionend', hide); };
+        this.navDrawer.addEventListener('transitionend', hide, { once: true });
+        if (this.navOverlay) { this.navOverlay.classList.remove('open'); this.navOverlay.hidden = true; }
+        if (this.navToggle) this.navToggle.setAttribute('aria-expanded', 'false');
+        if (this._escNav) { window.removeEventListener('keydown', this._escNav); this._escNav = null; }
     }
 
     scrollRecent(dir) {
@@ -415,8 +472,16 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
     async geminiImageRestoration() {
         try {
             console.log('🖼️ Restoring photo via Gemini image output...');
+            // Combine mode-specific prompt
+            let prompt = this.restorationPrompt;
+            if (this.mode === 'location') {
+                const preset = (this.locationPreset && this.locationPreset.value) || '';
+                const custom = (this.locationCustom && this.locationCustom.value) || '';
+                const loc = (custom || preset || 'a well-known city backdrop').trim();
+                prompt = `${this.locationPromptBase}\n\nTarget location: ${loc}.`;
+            }
             const payload = {
-                prompt: this.restorationPrompt,
+                prompt,
                 mimeType: this.currentImage.file.type,
                 data: this.currentImage.base64,
             };
@@ -590,16 +655,22 @@ ANALYZE THIS HISTORICAL PHOTOGRAPH AND PROVIDE DETAILED RESTORATION INSTRUCTIONS
     updateUploadButtonLabel(info) {
         if (!this.uploadBtn || !info) return;
         const free = Number(info.freeRemaining || 0);
+        const baseTitle = this.mode === 'ghibli'
+            ? 'Transform to a Ghibli Photo With AI'
+            : (this.mode === 'location'
+                ? "Change your Photo's Background Location with AI"
+                : 'Restore a Photo with AI');
+
         if (free > 0) {
             this.uploadBtn.textContent = 'Upload a Photo';
             this.uploadBtn.setAttribute('aria-label', 'Upload one Photo for free');
             this.uploadBtn.title = 'Your first restore is free';
-            if (this.uploadHeading) this.uploadHeading.textContent = 'Restore a Photo with AI - 1 Free';
+            if (this.uploadHeading) this.uploadHeading.textContent = `${baseTitle} - 1 Free`;
         } else {
             this.uploadBtn.textContent = 'Upload a Photo';
             this.uploadBtn.setAttribute('aria-label', 'Upload a Photo (costs 100 credits)');
             this.uploadBtn.removeAttribute('title');
-            if (this.uploadHeading) this.uploadHeading.textContent = 'Restore a Photo with AI - 100 Credits';
+            if (this.uploadHeading) this.uploadHeading.textContent = `${baseTitle} - 100 Credits`;
         }
     }
 
@@ -1209,7 +1280,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Display API setup message
 document.addEventListener('DOMContentLoaded', () => {
     console.log(`
-🎨 GEMINI-POWERED PhotoRestore READY!
+🎨 GEMINI-POWERED PhotoRestoreAI READY!
 
 ✅ GEMINI 2.5 FLASH INTEGRATION ACTIVE
 - Photo analysis and historical context identification

@@ -88,6 +88,18 @@ body {
     text-shadow: 0 1px 0 rgba(0,0,0,0.25);
 }
 
+/* Hamburger navigation */
+.nav-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); backdrop-filter: blur(1px); opacity:0; pointer-events:none; transition: opacity 0.2s ease; z-index:70; }
+.nav-overlay.open { opacity:1; pointer-events:auto; }
+.nav-panel { position: fixed; top: 0; bottom: 0; left: 0; width: min(280px, 86vw); background: var(--surface); border-right:1px solid var(--border-color); box-shadow: var(--shadow-lg); padding: 0.75rem; display:block; gap:0.25rem; z-index:90; transform: translateX(-110%); transition: transform 0.25s ease; }
+.nav-panel.open { transform: translateX(0); }
+.nav-panel[hidden] { display: none; }
+.nav-panel .nav-link { color: var(--text-primary); text-decoration:none; padding:0.5rem 0.6rem; border-radius:8px; display:block; }
+.nav-panel .nav-link:hover, .nav-panel .nav-link.active { background: rgba(255,255,255,0.06); }
+.icon-btn.square { width: 2.25rem; height: 2.25rem; display:inline-grid; place-items:center; }
+
+.brand-group { display:flex; align-items:center; gap: 0.5rem; }
+
 .tagline {
     font-size: 1.125rem;
     color: var(--text-secondary);
@@ -702,7 +714,7 @@ body {
     box-shadow: var(--shadow-lg);
     transform: translateX(100%);
     transition: transform 0.25s ease;
-    z-index: 80; /* above header, below lightbox */
+    z-index: 120; /* above overlay and header */
     display: grid;
     grid-template-rows: auto 1fr;
     font-size: 17.5px; /* slightly larger than base for readability */
@@ -710,6 +722,9 @@ body {
 
 .drawer.open { transform: translateX(0); }
 .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+/* Left variant for nav drawer */
+.drawer.left { right: auto; left: 0; transform: translateX(-100%); }
+.drawer.left.open { transform: translateX(0); }
 
 .drawer-header {
     display: flex;

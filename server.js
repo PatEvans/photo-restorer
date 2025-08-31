@@ -66,6 +66,15 @@ const pubDir = __dirname;
 app.get('/', async (req, res) => {
   res.sendFile(path.join(pubDir, 'index.html'));
 });
+app.get('/restore', async (req, res) => {
+  res.sendFile(path.join(pubDir, 'index.html'));
+});
+app.get('/ghibli', async (req, res) => {
+  res.sendFile(path.join(pubDir, 'ghibli.html'));
+});
+app.get('/location', async (req, res) => {
+  res.sendFile(path.join(pubDir, 'location.html'));
+});
 app.get('/script.js', async (req, res) => {
   res.sendFile(path.join(pubDir, 'script.js'));
 });
@@ -508,5 +517,5 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   const actualPort = (addr && typeof addr === 'object') ? addr.port : PORT;
   ACTUAL_PORT = Number(actualPort) || ACTUAL_PORT;
   // Helpful local hint; in cloud, use your service URL
-  console.log(`PhotoRestore server listening on 0.0.0.0:${actualPort} (try http://127.0.0.1:${actualPort} locally)`);
+  console.log(`PhotoRestoreAI server listening on 0.0.0.0:${actualPort} (try http://127.0.0.1:${actualPort} locally)`);
 });

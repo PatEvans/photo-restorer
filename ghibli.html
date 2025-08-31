@@ -3,15 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PhotoRestoreAI — AI Photo Restoration & Colorization</title>
-  <meta name="description" content="PhotoRestoreAI restores, colorizes, and upscales old photos using AI. Upload a photo and get an AI‑enhanced, high‑resolution result in seconds." />
-  <meta property="og:title" content="PhotoRestoreAI — AI Photo Restoration & Colorization" />
-  <meta property="og:description" content="Restore, colorize, and upscale your photos with AI." />
-  <meta name="twitter:card" content="summary_large_image" />
+  <title>PhotoRestoreAI — Ghibli‑Style AI Photo Generator</title>
+  <meta name="description" content="Turn your photos into anime‑inspired, watercolor scenes with PhotoRestoreAI. Upload a photo and get a Ghibli‑style AI image." />
+  <meta property="og:title" content="PhotoRestoreAI — Ghibli‑Style Photo Generator" />
+  <meta property="og:description" content="Upload a photo and get an anime‑style, watercolor image." />
   <link rel="stylesheet" href="styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
   <style>
-    /* Minimal layout tweaks on top of styles.css */
     .header { padding: 1.25rem 0; }
     .main { padding: 2rem 0; }
     .stack { display: grid; gap: 1rem; }
@@ -20,18 +18,19 @@
     .narrow { max-width: 880px; margin: 0 auto; }
     .upload-area { padding: 2.5rem 1.5rem; }
     .upload-content h2 { margin-bottom: 0.5rem; }
-    .image-comparison { grid-template-columns: 1fr; gap: 1rem; }
-    @media (min-width: 900px) { .image-comparison { grid-template-columns: 1fr 1fr; } }
-    .footer { padding: 1rem 0; margin-top: 2rem; }
+    .top-nav { display:flex; gap:1rem; align-items:center; }
+    .top-nav a { color: var(--text-secondary); text-decoration:none; padding:0.25rem 0.5rem; border-radius:6px; }
+    .top-nav a.active { color: var(--text-primary); background: rgba(255,255,255,0.06); }
   </style>
 </head>
-<body>
+<body data-mode="ghibli">
   <header class="header">
     <div class="container narrow header-bar">
       <div class="brand-group">
         <button id="navToggle" class="icon-btn square" aria-label="Open menu">☰</button>
         <a class="logo" href="/" style="margin:0" aria-label="Go to homepage">PhotoRestoreAI</a>
       </div>
+      
       <div class="header-actions">
         <div id="creditInfoTop" class="credit-badge" aria-live="polite">Checking credits…</div>
         <button class="btn btn-cta" id="buyBtnTop" aria-label="Buy credits">Buy Credits</button>
@@ -41,13 +40,11 @@
 
   <main class="main">
     <div class="container narrow">
-      
-
       <section class="upload-section">
         <div class="upload-area" id="uploadArea">
           <div class="upload-content center stack">
-            <h2 id="uploadHeading" style="text-align:center;">Restore a Photo with AI</h2>
-            <p style="text-align:center;">Drop an image here or choose a file</p>
+            <h2 id="uploadHeading" style="text-align:center;">Transform to a Ghibli Photo With AI</h2>
+            <p style="text-align:center;">Upload a photo and we’ll transform it into an anime‑inspired watercolor scene</p>
             <input type="file" id="fileInput" accept="image/*" hidden />
             <button class="upload-btn" id="uploadBtn" aria-label="Upload a Photo">Upload a Photo</button>
           </div>
@@ -57,7 +54,7 @@
       <section class="processing-section" id="processingSection" style="display:none;">
         <div class="processing-indicator center stack">
           <div class="spinner"></div>
-          <p>Restoring your photo…</p>
+          <p>Generating your AI image…</p>
         </div>
       </section>
 
@@ -69,18 +66,18 @@
               <div class="image-frame"><img id="originalImage" alt="Original" /></div>
             </div>
             <div class="image-side">
-              <h3>Restored</h3>
-              <div class="image-frame"><img id="restoredImage" alt="AI Restored" /></div>
+              <h3>AI Ghibli Style</h3>
+              <div class="image-frame"><img id="restoredImage" alt="AI Ghibli" /></div>
             </div>
           </div>
           <div class="actions" style="margin-top:1rem;">
-            <button class="btn btn-primary icon-only" id="downloadBtn" title="Download the restored image" aria-label="Download restored image">⬇</button>
+            <button class="btn btn-primary icon-only" id="downloadBtn" title="Download the AI image" aria-label="Download AI image">⬇</button>
             <button class="btn btn-secondary" id="newPhotoBtn">New Photo</button>
           </div>
         </div>
       </section>
 
-      <section id="recentSection" class="results-section" aria-label="Recent Images">
+      <section id="recentSection" class="results-section" aria-label="Recent Images" hidden>
         <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
           <h3 style="margin:0;">Recent Images</h3>
           <div class="row" style="gap:0.5rem;">
@@ -93,13 +90,12 @@
             <button class="btn btn-secondary" id="clearRecentBtn" title="Clear recent history">Clear History</button>
           </div>
         </div>
-        <p style="color:var(--text-secondary); margin-bottom:0.75rem;">Only stored on this device. Up to 20 items.</p>
         <div id="recentGrid" class="recent-carousel"></div>
       </section>
 
       <section id="examplesSection" class="results-section" style="margin-top:1.5rem;">
         <h3 style="margin-bottom:0.25rem;">Examples</h3>
-        <p style="color:var(--text-secondary); margin-bottom:0.75rem;">A few before/after samples to show what’s possible.</p>
+        <p style="color:var(--text-secondary); margin-bottom:0.75rem;">A few anime‑inspired samples generated with AI.</p>
         <div id="examplesGrid" class="examples-grid"></div>
       </section>
     </div>
@@ -107,12 +103,12 @@
 
   <footer class="footer">
     <div class="container narrow" style="color:#ef4444;">
-      <small><strong>Disclaimer:</strong> Do not upload images of minors, copyrighted images, or celebrities. Such content is not allowed and will be blocked.</small>
+      <small><strong>Disclaimer:</strong> We can’t process images of minors, celebrities, or sensitive/controversial topics.</small>
     </div>
   </footer>
 
   <script src="script.js"></script>
-  <!-- Global Nav Drawer and Overlay placed at body level to avoid header z-index -->
+  <!-- Global Nav Drawer and Overlay -->
   <aside id="navDrawer" class="drawer left" hidden aria-hidden="true" aria-label="Navigation Menu">
     <div class="drawer-header">
       <h2 style="margin:0">Menu</h2>
@@ -127,9 +123,28 @@
     </div>
   </aside>
   <div id="navOverlay" class="drawer-overlay" hidden></div>
+  <!-- Image Lightbox (shared across tools) -->
+  <div id="imageLightboxOverlay" class="lb-overlay" hidden></div>
+  <div id="imageLightbox" class="lb-modal" hidden aria-hidden="true" role="dialog" aria-label="Expanded image">
+    <div class="lb-topbar">
+      <span id="lbLabel" class="lb-label">Image</span>
+      <div class="lb-actions">
+        <button id="lbDownload" class="btn btn-secondary" aria-label="Download image" title="Download image">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v8.586l2.293-2.293a1 1 0 1 1 1.414 1.414l-4.002 4a1 1 0 0 1-1.414 0l-4.002-4a1 1 0 1 1 1.414-1.414L11 12.586V4a1 1 0 0 1 1-1z"></path><path fill="currentColor" d="M5 20a2 2 0 0 1-2-2v-2a1 1 0 1 1 2 0v2h14v-2a1 1 0 1 1 2 0v2a2 2 0 0 1-2 2H5z"></path></svg>
+          </span>
+          <span class="label">Download</span>
+        </button>
+        <button id="lbClose" class="icon-btn square lb-close" aria-label="Close" title="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <img id="lbImage" alt="Expanded image" />
+  </div>
   <script src="https://js.stripe.com/v3"></script>
 
-  <!-- Buy Credits Drawer -->
+  <!-- Drawer -->
   <div id="drawerOverlay" class="drawer-overlay" hidden></div>
   <aside id="buyDrawer" class="drawer" hidden aria-hidden="true" aria-labelledby="drawerTitle">
     <div class="drawer-header">
@@ -139,56 +154,19 @@
     <div class="drawer-body">
       <div class="drawer-options">
         <button class="option" data-credits="500">
-          <span class="opt-left">
-            <span class="opt-title">🪙 500 credits</span>
-            <span class="opt-sub">Enough for ~5 images</span>
-          </span>
+          <span class="opt-left"><span class="opt-title">🪙 500 credits</span><span class="opt-sub">~5 images</span></span>
           <span class="opt-price">$2.50</span>
         </button>
         <button class="option" data-credits="1000">
-          <span class="opt-left">
-            <span class="opt-title">🚀 1000 credits</span>
-            <span class="opt-sub">Enough for ~10 images</span>
-          </span>
-          <span class="opt-right">
-            <span class="badge-popular">Popular</span>
-            <span class="opt-price">$5.00</span>
-          </span>
+          <span class="opt-left"><span class="opt-title">🚀 1000 credits</span><span class="opt-sub">~10 images</span></span>
+          <span class="opt-right"><span class="badge-popular">Popular</span><span class="opt-price">$5.00</span></span>
         </button>
         <button class="option" data-credits="2000">
-          <span class="opt-left">
-            <span class="opt-title">🏆 2000 credits</span>
-            <span class="opt-sub">Enough for ~20 images</span>
-          </span>
+          <span class="opt-left"><span class="opt-title">🏆 2000 credits</span><span class="opt-sub">~20 images</span></span>
           <span class="opt-price">$10.00</span>
         </button>
       </div>
     </div>
   </aside>
-
-  <!-- Image Lightbox -->
-  <div id="imageLightboxOverlay" class="lb-overlay" hidden></div>
-  <div id="imageLightbox" class="lb-modal" hidden aria-hidden="true" role="dialog" aria-label="Expanded image">
-    <div class="lb-topbar">
-      <span id="lbLabel" class="lb-label">Image</span>
-      <div class="lb-actions">
-        <button id="lbDownload" class="btn btn-secondary" aria-label="Download image" title="Download image">
-          <span class="icon">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v8.586l2.293-2.293a1 1 0 1 1 1.414 1.414l-4.002 4a1 1 0 0 1-1.414 0l-4.002-4a1 1 0 1 1 1.414-1.414L11 12.586V4a1 1 0 0 1 1-1z"></path>
-              <path fill="currentColor" d="M5 20a2 2 0 0 1-2-2v-2a1 1 0 1 1 2 0v2h14v-2a1 1 0 1 1 2 0v2a2 2 0 0 1-2 2H5z"></path>
-            </svg>
-          </span>
-          <span class="label">Download</span>
-        </button>
-        <button id="lbClose" class="icon-btn square lb-close" aria-label="Close" title="Close">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-    <img id="lbImage" alt="Expanded image" />
-  </div>
 </body>
 </html>
